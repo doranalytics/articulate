@@ -285,26 +285,22 @@ export default function Train() {
     }
   }, [buyerEmail]);
 
+  // Restore = prove you own the email. A magic link signs them in, and the
+  // SIGNED_IN handler exchanges the verified session for membership.
+  const [restoreSent, setRestoreSent] = useState(false);
   const restore = useCallback(async () => {
     const email = restoreEmail.trim();
     if (!email) return;
     setPayBusy("restore");
     setPayError(null);
-    try {
-      const res = await fetch("/api/entitlement", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const data = (await res.json()) as MemberToken & { error?: string };
-      if (!res.ok) throw new Error(data.error || "no membership found");
-      adoptToken(data);
-    } catch (e) {
-      setPayError(e instanceof Error ? e.message : "no membership found");
-    } finally {
-      setPayBusy(null);
-    }
-  }, [restoreEmail, adoptToken]);
+    const { error: err } = await supabase().auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/train` },
+    });
+    if (err) setPayError("Couldn't send the link — check the address and try again.");
+    else setRestoreSent(true);
+    setPayBusy(null);
+  }, [restoreEmail]);
 
   // ---- the quiz loop ----
   const nextChallenge = useCallback((s: SavedState, lastId?: string) => {
@@ -633,6 +629,11 @@ export default function Train() {
 
       <div className="mt-6 text-center">
         {restoreOpen ? (
+          restoreSent ? (
+            <p className="text-sm text-[var(--sub)]">
+              Check your email — clicking the link signs you in and restores your membership here.
+            </p>
+          ) : (
           <div className="text-left">
             <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--faint)]">restore membership</p>
             <div className="mt-2 flex gap-2">
@@ -651,7 +652,11 @@ export default function Train() {
                 restore
               </button>
             </div>
+            <p className="mt-1.5 text-[11px] text-[var(--faint)]">
+              we&rsquo;ll email you a sign-in link — clicking it proves it&rsquo;s you and unlocks this device
+            </p>
           </div>
+          )
         ) : (
           <button
             onClick={() => setRestoreOpen(true)}

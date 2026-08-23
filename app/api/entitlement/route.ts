@@ -74,11 +74,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "no active membership" }, { status: 402 });
     }
 
-    if (body.email && body.email.includes("@") && body.email.length < 200) {
-      const found = await findSubscriptionByEmail(body.email);
-      if (!found) return NextResponse.json({ error: "no active membership for that email" }, { status: 402 });
-      return mint(found.cus, found.sub);
-    }
+    // Note: there is deliberately no raw-email path. Restoring by email goes
+    // through a magic link — the supabase_token branch above — so possession
+    // of the inbox is proven before membership is granted.
   } catch (e) {
     // Never surface raw Stripe errors to customers.
     console.error("entitlement failed:", e instanceof Error ? e.message : e);
