@@ -209,7 +209,15 @@ export default function Train() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ supabase_token: sess.access_token }),
           });
-          if (res.ok) adoptToken((await res.json()) as MemberToken);
+          if (res.ok) {
+            adoptToken((await res.json()) as MemberToken);
+          } else if (res.status === 402) {
+            // Signed in but no subscription on this email — say so where the
+            // plans render, instead of leaving a silent still-locked screen.
+            setPayError(
+              `Signed in as ${sess.user.email}, but there's no active membership on that email.`,
+            );
+          }
         } catch {}
       }
     },
@@ -231,21 +239,29 @@ export default function Train() {
     return () => sub.subscription.unsubscribe();
   }, [syncFromCloud]);
 
-  const sendMagicLink = useCallback(async () => {
-    const sb = supabase();
-    const email = acctEmail.trim();
-    if (!sb || !email.includes("@")) return;
-    setAuthError(null);
-    const { error: err } = await sb.auth.signInWithOtp({
+  // One sender for both flows. Sign-up may create the account; restore must
+  // not — an unknown email there means "wrong address", not "new user".
+  const sendOtp = useCallback(async (email: string, shouldCreateUser: boolean) => {
+    const { error: err } = await supabase().auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/train` },
+      options: { emailRedirectTo: `${window.location.origin}/train`, shouldCreateUser },
     });
-    if (err) setAuthError(err.message);
-    else {
-      setAuthSent(true);
-      posthog.capture("magic_link_sent");
+    if (!err) posthog.capture("magic_link_sent", { source: shouldCreateUser ? "account" : "restore" });
+    return err;
+  }, []);
+
+  const sendMagicLink = useCallback(async () => {
+    const email = acctEmail.trim();
+    if (!email.includes("@")) return;
+    setAuthError(null);
+    try {
+      const err = await sendOtp(email, true);
+      if (err) setAuthError(err.message);
+      else setAuthSent(true);
+    } catch {
+      setAuthError("Couldn't send the link — try again.");
     }
-  }, [acctEmail]);
+  }, [acctEmail, sendOtp]);
 
   const signOut = useCallback(async () => {
     await supabase()?.auth.signOut();
@@ -289,14 +305,23 @@ export default function Train() {
     if (!email) return;
     setPayBusy("restore");
     setPayError(null);
-    const { error: err } = await supabase().auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: `${window.location.origin}/train` },
-    });
-    if (err) setPayError("Couldn't send the link — check the address and try again.");
-    else setRestoreSent(true);
-    setPayBusy(null);
-  }, [restoreEmail]);
+    try {
+      const err = await sendOtp(email, false);
+      if (err) {
+        setPayError(
+          /signup|not allowed|not found/i.test(err.message)
+            ? "No account found for that email — use the email from your Stripe receipt."
+            : "Couldn't send the link — check the address and try again.",
+        );
+      } else {
+        setRestoreSent(true);
+      }
+    } catch {
+      setPayError("Couldn't send the link — try again.");
+    } finally {
+      setPayBusy(null);
+    }
+  }, [restoreEmail, sendOtp]);
 
   // ---- the quiz loop ----
   const nextChallenge = useCallback((s: SavedState, lastId?: string) => {
@@ -609,9 +634,19 @@ export default function Train() {
       <div className="mt-6 text-center">
         {restoreOpen ? (
           restoreSent ? (
-            <p className="text-sm text-[var(--sub)]">
-              Check your email — clicking the link signs you in and restores your membership here.
-            </p>
+            <div>
+              <p className="text-sm text-[var(--sub)]">
+                Check <span className="font-medium text-[var(--ink)]">{restoreEmail.trim()}</span> —
+                open the link <span className="font-medium">on this device</span> to unlock here.
+                (Your membership works on any device you sign in on.)
+              </p>
+              <button
+                onClick={() => setRestoreSent(false)}
+                className="mt-2 text-xs text-[var(--faint)] underline-offset-4 hover:text-[var(--sub)] hover:underline"
+              >
+                wrong address? use a different email
+              </button>
+            </div>
           ) : (
           <div className="text-left">
             <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--faint)]">restore membership</p>

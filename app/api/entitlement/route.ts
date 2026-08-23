@@ -11,12 +11,14 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/supabase";
 export const maxDuration = 30;
 
 // Three ways in, one shape out: { token, exp } or 402.
-// 1. { session_id } — back from Stripe Checkout; verify and mint.
-// 2. { token }      — refresh: verify signature, re-check the sub, re-mint.
-// 3. { email }      — restore on a new device by receipt email.
+// 1. { session_id }     — back from Stripe Checkout; verify and mint.
+// 2. { token }          — refresh: verify signature, re-check the sub, re-mint.
+// 3. { supabase_token } — signed-in user; verified email → subscription lookup.
+// There is deliberately no raw-email path: restore goes through a magic link,
+// so possession of the inbox is proven before membership is granted.
 
 export async function POST(req: Request) {
-  let body: { session_id?: string; token?: string; email?: string; supabase_token?: string };
+  let body: { session_id?: string; token?: string; supabase_token?: string };
   try {
     body = await req.json();
   } catch {
@@ -36,14 +38,18 @@ export async function POST(req: Request) {
         // send the magic link, so membership + progress follow them anywhere.
         const email = session.customer_details?.email;
         if (email) {
-          void fetch(`${SUPABASE_URL}/auth/v1/otp`, {
-            method: "POST",
-            headers: { apikey: SUPABASE_ANON_KEY, "content-type": "application/json" },
-            body: JSON.stringify({
-              email,
-              options: { email_redirect_to: "https://articulate.lol/train" },
-            }),
-          }).catch(() => {});
+          // Awaited: a fire-and-forget fetch can be frozen with the lambda
+          // and the promised sign-in email would silently never send.
+          try {
+            await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
+              method: "POST",
+              headers: { apikey: SUPABASE_ANON_KEY, "content-type": "application/json" },
+              body: JSON.stringify({
+                email,
+                options: { email_redirect_to: "https://articulate.lol/train" },
+              }),
+            });
+          } catch {}
         }
         return mint(session.customer, session.subscription, email);
       }
@@ -74,9 +80,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "no active membership" }, { status: 402 });
     }
 
-    // Note: there is deliberately no raw-email path. Restoring by email goes
-    // through a magic link — the supabase_token branch above — so possession
-    // of the inbox is proven before membership is granted.
   } catch (e) {
     // Never surface raw Stripe errors to customers.
     console.error("entitlement failed:", e instanceof Error ? e.message : e);

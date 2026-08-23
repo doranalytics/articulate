@@ -71,20 +71,18 @@ export async function subscriptionActive(subId: string): Promise<{ ok: boolean; 
   return { ok: GOOD.has(sub.status), cus: sub.customer };
 }
 
-/** Newest active subscription for an email, if any. */
+/** Newest active subscription for an email, if any. One round-trip: the
+ * customer list expands each customer's current subscriptions inline. */
 export async function findSubscriptionByEmail(email: string): Promise<{ cus: string; sub: string } | null> {
-  const customers = await stripe<{ data: { id: string }[] }>(
+  const customers = await stripe<{
+    data: { id: string; subscriptions?: { data: { id: string; status: string }[] } }[];
+  }>(
     "/customers",
-    { email: email.trim().toLowerCase(), limit: "5" },
+    { email: email.trim().toLowerCase(), limit: "5", "expand[]": "data.subscriptions" },
     "GET",
   );
   for (const c of customers.data ?? []) {
-    const subs = await stripe<{ data: { id: string; status: string }[] }>(
-      "/subscriptions",
-      { customer: c.id, status: "all", limit: "10" },
-      "GET",
-    );
-    const hit = (subs.data ?? []).find((s) => GOOD.has(s.status));
+    const hit = (c.subscriptions?.data ?? []).find((s) => GOOD.has(s.status));
     if (hit) return { cus: c.id, sub: hit.id };
   }
   return null;
