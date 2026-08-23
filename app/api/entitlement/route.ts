@@ -6,6 +6,7 @@ import {
   stripe,
   subscriptionActive,
 } from "@/lib/stripe";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/supabase";
 
 export const maxDuration = 30;
 
@@ -44,18 +45,14 @@ export async function POST(req: Request) {
     // 4. { supabase_token } — signed-in user; their email is verified, so an
     // active subscription on it entitles this device without typing anything.
     if (body.supabase_token) {
-      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-      if (url && anon) {
-        const r = await fetch(`${url}/auth/v1/user`, {
-          headers: { apikey: anon, Authorization: `Bearer ${body.supabase_token}` },
-        });
-        if (r.ok) {
-          const u = (await r.json()) as { email?: string };
-          if (u.email) {
-            const found = await findSubscriptionByEmail(u.email);
-            if (found) return mint(found.cus, found.sub);
-          }
+      const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${body.supabase_token}` },
+      });
+      if (r.ok) {
+        const u = (await r.json()) as { email?: string };
+        if (u.email) {
+          const found = await findSubscriptionByEmail(u.email);
+          if (found) return mint(found.cus, found.sub);
         }
       }
       return NextResponse.json({ error: "no active membership" }, { status: 402 });
