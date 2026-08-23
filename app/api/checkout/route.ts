@@ -25,7 +25,10 @@ export async function POST(req: Request) {
       allow_promotion_codes: "true",
     };
     // Signed-in buyers get their email prefilled so account and membership match.
-    if (email && email.includes("@") && email.length < 200) params.customer_email = email;
+    // Lowercased: Stripe's customer email filter is exact-match, and Supabase
+    // normalizes emails to lowercase — they must agree.
+    if (email && email.includes("@") && email.length < 200)
+      params.customer_email = email.trim().toLowerCase();
     const session = await stripe<{ url: string }>("/checkout/sessions", params);
     return NextResponse.json({ url: session.url });
   } catch (e) {

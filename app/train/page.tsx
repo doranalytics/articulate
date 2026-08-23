@@ -74,7 +74,6 @@ export default function Train() {
   const [plan, setPlan] = useState<"monthly" | "annual">("annual");
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [joinedEmail, setJoinedEmail] = useState<string | null>(null);
-  const [buyerEmail, setBuyerEmail] = useState("");
   const [skipped, setSkipped] = useState<Challenge[]>([]);
   const [supported, setSupported] = useState(true);
   const [member, setMember] = useState(false);
@@ -269,12 +268,9 @@ export default function Train() {
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          plan,
-          email:
-            sbSession.current?.user.email ??
-            (buyerEmail.includes("@") ? buyerEmail.trim() : undefined),
-        }),
+        // Signed-in: lock checkout to the account email. Guests: Stripe's own
+        // (validated, typo-suggesting) email field collects it.
+        body: JSON.stringify({ plan, email: sbSession.current?.user.email }),
       });
       const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok || !data.url) throw new Error(data.error || "checkout failed");
@@ -283,7 +279,7 @@ export default function Train() {
       setPayError(e instanceof Error ? e.message : "checkout failed");
       setPayBusy(null);
     }
-  }, [buyerEmail]);
+  }, []);
 
   // Restore = prove you own the email. A magic link signs them in, and the
   // SIGNED_IN handler exchanges the verified session for membership.
@@ -591,23 +587,6 @@ export default function Train() {
         {planCard("annual")}
         {planCard("monthly")}
       </div>
-      {!authEmail && (
-        <div className="mt-4 text-left">
-          <label className="text-[11px] uppercase tracking-[0.2em] text-[var(--faint)]">
-            your email
-          </label>
-          <input
-            type="email"
-            value={buyerEmail}
-            onChange={(e) => setBuyerEmail(e.target.value)}
-            placeholder="you@wherever.com"
-            className="mt-1.5 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--green)]"
-          />
-          <p className="mt-1.5 text-[11px] leading-snug text-[var(--faint)]">
-            this becomes your account — receipts, sign-in link, and your membership on any device
-          </p>
-        </div>
-      )}
       {authEmail && (
         <p className="mt-4 text-[12px] text-[var(--faint)]">
           joining as <span className="font-medium text-[var(--sub)]">{authEmail}</span>
@@ -615,7 +594,7 @@ export default function Train() {
       )}
       <button
         onClick={() => startCheckout(plan)}
-        disabled={payBusy !== null || (!authEmail && !buyerEmail.includes("@"))}
+        disabled={payBusy !== null}
         className="mt-5 w-full rounded-full bg-[var(--green)] px-8 py-3.5 text-[15px] font-medium text-white transition-transform hover:scale-[1.01] active:scale-95 disabled:opacity-60"
       >
         {payBusy === "monthly" || payBusy === "annual"
@@ -623,7 +602,7 @@ export default function Train() {
           : `Continue — ${plan === "annual" ? "$120 / year" : "$15 / month"}`}
       </button>
       <p className="mt-2.5 text-center text-[11px] text-[var(--faint)]">
-        secure checkout by Stripe · cancel anytime
+        secure checkout by Stripe · your checkout email becomes your account · cancel anytime
       </p>
       {payError && <p className="mt-3 text-center text-sm text-red-700">{payError}</p>}
 
