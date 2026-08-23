@@ -1,7 +1,12 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { GreenOrb } from "@/components/GreenOrb";
 import { AXIS_LABEL, AXES } from "@/lib/challenges";
 
 export default function Landing() {
+  const router = useRouter();
   return (
     <main className="mx-auto flex min-h-dvh max-w-3xl flex-col items-center px-6 text-center">
       <header className="flex w-full items-center justify-between pt-8">
@@ -17,17 +22,15 @@ export default function Landing() {
       </header>
 
       <section className="flex flex-1 flex-col items-center justify-center py-16">
-        <Link href="/train" aria-label="Begin training">
-          <span className="orb block h-36 w-36 cursor-pointer sm:h-44 sm:w-44" />
-        </Link>
+        <GreenOrb energy={0.22} size={190} onClick={() => router.push("/train")} ariaLabel="Begin training" />
 
-        <h1 className="mt-12 text-4xl font-semibold tracking-tight sm:text-5xl">
+        <h1 className="mt-10 text-4xl font-semibold tracking-tight sm:text-5xl">
           Say more<span className="text-[var(--gold)]">.</span> With less<span className="text-[var(--gold)]">.</span>
         </h1>
         <p className="mt-5 max-w-md text-[15px] leading-relaxed text-[var(--sub)]">
           A voice-only training ground for becoming more articulate. Describe a scene, explain a
-          concept, invent an analogy — out loud, no typing allowed — and get scored the moment you
-          stop talking.
+          concept, invent an analogy — out loud, no typing allowed — your words on screen as you
+          speak, graded by AI the moment you stop.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
@@ -48,7 +51,7 @@ export default function Landing() {
           Begin
         </Link>
         <p className="mt-4 text-xs text-[var(--faint)]">
-          Free. No account. Your voice is scored in the browser.
+          10 challenges free, no account · then $15/mo, or $10/mo billed annually
         </p>
       </section>
 

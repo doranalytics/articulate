@@ -14,19 +14,30 @@ Every 10 completed challenges an animated square radar chart shows your shape;
 the app quietly feeds you more of whatever leg is short. Skipping costs
 nothing — TikTok rules.
 
-## Keyless by design (first pass)
+## How it grades
 
-No API keys anywhere: speech-to-text is the browser's Web Speech API
-(Chrome/Edge/Safari), pauses and mic level come from a WebAudio analyser,
-and scoring is a deterministic local engine over the transcript + timing.
-Progress lives in `localStorage` as a guest user — accounts and the
-leaderboard are the obvious v2 (Supabase), as is model-graded explanation
-quality.
+Speech-to-text is the browser's Web Speech API (Chrome/Edge/Safari); your
+words appear on screen as you say them. A WebAudio analyser watches the mic
+for pauses and drives the orb. On stop, Claude (`claude-haiku-4-5`, via
+`/api/grade`) judges the substance — conciseness, vocabulary, articulation —
+with the measured delivery signals in hand, while the deterministic meter
+keeps the filler axis (counting is its job). If the grader is unreachable,
+the local engine scores the quiz so play never stops.
+
+## Membership
+
+10 challenges free as a guest, then Stripe: $15/mo, or $120/yr ($10/mo).
+`/api/checkout` opens Stripe Checkout; `/api/entitlement` verifies the
+session (or a receipt email, for restoring a new device) and mints an
+HMAC-signed token the client stores. No user database yet — the token is the
+membership.
 
 ## Run
 
 ```sh
 npm install
+# .env.local: ANTHROPIC_API_KEY, STRIPE_SECRET_KEY, ENTITLEMENT_SECRET,
+#             STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL
 npm run dev   # → http://localhost:3000
 npm run og    # regenerate the OG card
 ```
