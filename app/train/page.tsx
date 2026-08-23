@@ -16,6 +16,26 @@ const INTEREST_TAGS = ["tech", "business", "science", "culture", "general"];
 const FREE_GAMES = 10;
 const MEMBER_KEY = "articulate_member_v1";
 
+// One concrete drill per axis, surfaced under a weak scorecard.
+const AXIS_TIP: Record<Axis, string> = {
+  conciseness: "Do the 30-second version: say the three things that matter, then stop talking.",
+  vocabulary: "Upgrade one word per answer — swap the word you always reach for with a sharper one.",
+  articulation: "Give it a spine: what it is, how it works, why it matters — then land the ending.",
+  filler: "Pause instead of filling. Silence reads as confidence; “um” reads as doubt.",
+};
+
+function scoreColor(v: number) {
+  return v >= 80 ? "var(--green)" : v >= 60 ? "var(--gold)" : "#b0432f";
+}
+
+function verdictOf(v: number) {
+  if (v >= 90) return "exceptional";
+  if (v >= 80) return "strong";
+  if (v >= 65) return "solid — room to tighten";
+  if (v >= 45) return "rough — worth a second run";
+  return "missed it — run it back";
+}
+
 interface MemberToken {
   token: string;
   exp: number; // epoch seconds
@@ -47,7 +67,7 @@ export default function Train() {
   const [seconds, setSeconds] = useState(0);
   const [score, setScore] = useState<QuizScore & { gradedBy?: "ai" | "local" } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [sheet, setSheet] = useState<null | "progress" | "settings">(null);
   const [supported, setSupported] = useState(true);
   const [member, setMember] = useState(false);
   const [payBusy, setPayBusy] = useState<string | null>(null);
@@ -316,11 +336,120 @@ export default function Train() {
     nextChallenge(s, ch.id);
   }, [ch, phase, nextChallenge]);
 
+  // Same challenge, fresh attempt — the "run it back" path off a weak score.
+  const retry = useCallback(() => {
+    setScore(null);
+    setPhase("ready");
+    setLiveText("");
+    setLiveWords(0);
+    setLiveFillers(0);
+    setSeconds(0);
+  }, []);
+
+  // Scroll / swipe skips the challenge (TikTok rules) — ready phase only.
+  const wheelAcc = useRef(0);
+  const wheelAt = useRef(0);
+  const skipCooldown = useRef(0);
+  const touchY = useRef<number | null>(null);
+  useEffect(() => {
+    if (phase !== "ready" || locked || sheet !== null) return;
+    const onWheel = (e: WheelEvent) => {
+      const now = performance.now();
+      if (now - skipCooldown.current < 900) return;
+      if (now - wheelAt.current > 400) wheelAcc.current = 0;
+      wheelAt.current = now;
+      wheelAcc.current += e.deltaY;
+      if (wheelAcc.current > 140) {
+        wheelAcc.current = 0;
+        skipCooldown.current = now;
+        skip();
+      }
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      touchY.current = e.touches[0]?.clientY ?? null;
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      const start = touchY.current;
+      touchY.current = null;
+      if (start === null) return;
+      const end = e.changedTouches[0]?.clientY ?? start;
+      if (Math.abs(start - end) > 70 && performance.now() - skipCooldown.current > 900) {
+        skipCooldown.current = performance.now();
+        skip();
+      }
+    };
+    window.addEventListener("wheel", onWheel, { passive: true });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [phase, locked, sheet, skip]);
+
   if (!state || !ch) return <main className="min-h-dvh" />;
   const agg = aggregates(state.history);
+  const weakestNow = score
+    ? ((Object.entries(score.axes) as [Axis, number][]).sort((a, b) => a[1] - b[1])[0]?.[0] ?? null)
+    : null;
   const freeLeft = Math.max(0, FREE_GAMES - state.completed);
   const orbEnergy =
     phase === "listening" ? 0.3 + level * 0.7 : phase === "grading" ? 0.9 : 0.15;
+
+  // Plans + restore — shown on the post-10 paywall and in settings (join anytime).
+  const membershipPanel = (
+    <>
+      <div className="grid w-full max-w-sm gap-3">
+        <button
+          onClick={() => startCheckout("annual")}
+          disabled={payBusy !== null}
+          className="relative rounded-2xl border-2 border-[var(--green)] bg-white p-5 text-left transition-transform hover:scale-[1.01] disabled:opacity-50"
+        >
+          <span className="absolute -top-2.5 right-4 rounded-full bg-[var(--gold)] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+            save 33%
+          </span>
+          <div className="text-lg font-semibold">
+            $10<span className="text-sm font-normal text-[var(--sub)]"> / month</span>
+          </div>
+          <div className="text-xs text-[var(--sub)]">billed annually — $120/yr</div>
+          {payBusy === "annual" && <div className="mt-1 text-xs text-[var(--green)]">opening checkout…</div>}
+        </button>
+        <button
+          onClick={() => startCheckout("monthly")}
+          disabled={payBusy !== null}
+          className="rounded-2xl border border-[var(--line)] bg-white p-5 text-left transition-transform hover:scale-[1.01] disabled:opacity-50"
+        >
+          <div className="text-lg font-semibold">
+            $15<span className="text-sm font-normal text-[var(--sub)]"> / month</span>
+          </div>
+          <div className="text-xs text-[var(--sub)]">billed monthly</div>
+          {payBusy === "monthly" && <div className="mt-1 text-xs text-[var(--green)]">opening checkout…</div>}
+        </button>
+      </div>
+
+      <div className="mt-6 w-full max-w-sm">
+        <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--faint)]">already a member?</p>
+        <div className="mt-2 flex gap-2">
+          <input
+            type="email"
+            value={restoreEmail}
+            onChange={(e) => setRestoreEmail(e.target.value)}
+            placeholder="your receipt email"
+            className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--green)]"
+          />
+          <button
+            onClick={restore}
+            disabled={payBusy !== null || !restoreEmail.includes("@")}
+            className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
+          >
+            restore
+          </button>
+        </div>
+      </div>
+      {payError && <p className="mt-3 text-sm text-red-700">{payError}</p>}
+    </>
+  );
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-xl flex-col px-5">
@@ -328,10 +457,20 @@ export default function Train() {
         <Link href="/" className="text-sm font-semibold tracking-tight">
           articulate<span className="text-[var(--gold)]">.</span>
         </Link>
-        <span className="font-mono text-[11px] tracking-wider text-[var(--faint)]">
-          {member
-            ? `${state.completed} spoken · member`
-            : `${state.completed} spoken · ${freeLeft} free left`}
+        <span className="flex items-center gap-3">
+          <span className="font-mono text-[11px] tracking-wider text-[var(--faint)]">
+            {member
+              ? `${state.completed} spoken · member`
+              : `${state.completed} spoken · ${freeLeft} free left`}
+          </span>
+          {!member && (
+            <button
+              onClick={() => setSheet("settings")}
+              className="rounded-full bg-[var(--green)] px-3.5 py-1 text-[11px] font-medium text-white transition-transform hover:scale-[1.03] active:scale-95"
+            >
+              join
+            </button>
+          )}
         </span>
       </header>
 
@@ -359,63 +498,18 @@ export default function Train() {
             scorecard. Cancel anytime.
           </p>
 
-          <div className="mt-8 grid w-full max-w-sm gap-3">
-            <button
-              onClick={() => startCheckout("annual")}
-              disabled={payBusy !== null}
-              className="relative rounded-2xl border-2 border-[var(--green)] bg-white p-5 text-left transition-transform hover:scale-[1.01] disabled:opacity-50"
-            >
-              <span className="absolute -top-2.5 right-4 rounded-full bg-[var(--gold)] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
-                save 33%
-              </span>
-              <div className="text-lg font-semibold">
-                $10<span className="text-sm font-normal text-[var(--sub)]"> / month</span>
-              </div>
-              <div className="text-xs text-[var(--sub)]">billed annually — $120/yr</div>
-              {payBusy === "annual" && <div className="mt-1 text-xs text-[var(--green)]">opening checkout…</div>}
-            </button>
-            <button
-              onClick={() => startCheckout("monthly")}
-              disabled={payBusy !== null}
-              className="rounded-2xl border border-[var(--line)] bg-white p-5 text-left transition-transform hover:scale-[1.01] disabled:opacity-50"
-            >
-              <div className="text-lg font-semibold">
-                $15<span className="text-sm font-normal text-[var(--sub)]"> / month</span>
-              </div>
-              <div className="text-xs text-[var(--sub)]">billed monthly</div>
-              {payBusy === "monthly" && <div className="mt-1 text-xs text-[var(--green)]">opening checkout…</div>}
-            </button>
-          </div>
-
-          <div className="mt-6 w-full max-w-sm">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--faint)]">already a member?</p>
-            <div className="mt-2 flex gap-2">
-              <input
-                type="email"
-                value={restoreEmail}
-                onChange={(e) => setRestoreEmail(e.target.value)}
-                placeholder="your receipt email"
-                className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--green)]"
-              />
-              <button
-                onClick={restore}
-                disabled={payBusy !== null || !restoreEmail.includes("@")}
-                className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
-              >
-                restore
-              </button>
-            </div>
-          </div>
-          {payError && <p className="mt-3 text-sm text-red-700">{payError}</p>}
+          <div className="mt-8 flex w-full flex-col items-center">{membershipPanel}</div>
         </section>
       )}
 
       {/* ---- the single screen ---- */}
       {!locked && phase !== "chart" && (
         <section className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <p className="fade-up max-w-md text-xl font-medium leading-snug tracking-tight sm:text-2xl" key={ch.id}>
-            {ch.prompt}
-          </p>
+          {!ch.targetWord && (
+            <p className="fade-up max-w-md text-xl font-medium leading-snug tracking-tight sm:text-2xl" key={ch.id}>
+              {ch.prompt}
+            </p>
+          )}
 
           {ch.visual && phase !== "listening" && (
             <div className="fade-up mt-8 select-none text-6xl leading-none tracking-[0.2em] sm:text-7xl">{ch.visual}</div>
@@ -424,11 +518,14 @@ export default function Train() {
             <div className="mt-6 select-none text-4xl leading-none tracking-[0.15em]">{ch.visual}</div>
           )}
           {ch.targetWord && (
-            <div className="fade-up mt-8">
-              <span className="text-3xl font-semibold tracking-tight text-[var(--green)]">
+            <div className="fade-up flex flex-col items-center" key={ch.id}>
+              <p className="text-[10px] uppercase tracking-[0.3em] text-[var(--faint)]">your word</p>
+              <span className="mt-3 text-5xl font-semibold tracking-tight text-[var(--green)] sm:text-6xl">
                 {ch.targetWord.word}
               </span>
-              <p className="mt-1 text-sm italic text-[var(--sub)]">{ch.targetWord.gloss}</p>
+              <p className="mt-3 max-w-xs text-sm leading-relaxed text-[var(--sub)]">{ch.targetWord.gloss}</p>
+              <div className="mt-6 h-px w-10 bg-[var(--line)]" />
+              <p className="mt-5 max-w-sm text-[15px] leading-snug text-[var(--sub)]">{ch.prompt}</p>
             </div>
           )}
 
@@ -451,22 +548,52 @@ export default function Train() {
 
           {phase === "scored" && score && (
             <div className="score-pop mt-8 w-full max-w-sm rounded-2xl border border-[var(--line)] bg-white p-6 shadow-sm">
-              <div className="font-mono text-6xl font-semibold tracking-tight text-[var(--green)]">
+              <div
+                className="font-mono text-6xl font-semibold tracking-tight"
+                style={{ color: scoreColor(score.overall) }}
+              >
                 {score.overall}
               </div>
-              <div className="mt-3 flex flex-wrap justify-center gap-2">
+              <p className="mt-1.5 text-[11px] uppercase tracking-[0.22em] text-[var(--faint)]">
+                {verdictOf(score.overall)}
+              </p>
+
+              <div className="mt-5 space-y-2.5">
                 {Object.entries(score.axes).map(([axis, v]) => (
-                  <span key={axis} className="rounded-full bg-[var(--bg)] px-3 py-1 font-mono text-[11px] text-[var(--sub)]">
-                    {AXIS_LABEL[axis as Axis]} {v}
-                  </span>
+                  <div key={axis} className="flex items-center gap-3">
+                    <span className="w-28 shrink-0 text-left text-[10px] uppercase tracking-[0.14em] text-[var(--sub)]">
+                      {AXIS_LABEL[axis as Axis]}
+                    </span>
+                    <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--bg)]">
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${v}%`, background: scoreColor(v) }}
+                      />
+                    </div>
+                    <span className="w-7 shrink-0 text-right font-mono text-[11px] text-[var(--sub)]">{v}</span>
+                  </div>
                 ))}
               </div>
-              <div className="mt-3 space-y-1 text-[13px] leading-snug text-[var(--sub)]">
-                {score.notes.map((n, i) => (
-                  <p key={i}>{n}</p>
-                ))}
-              </div>
-              <p className="mt-3 font-mono text-[11px] text-[var(--faint)]">
+
+              {score.notes.length > 0 && (
+                <div className="mt-5 rounded-xl bg-[var(--bg)] p-3.5 text-left">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--faint)]">coach&rsquo;s notes</p>
+                  <div className="mt-1.5 space-y-1 text-[13px] leading-snug text-[var(--sub)]">
+                    {score.notes.map((n, i) => (
+                      <p key={i}>{n}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {score.overall < 80 && weakestNow && (
+                <div className="mt-3 rounded-xl border border-[var(--gold)] bg-white p-3.5 text-left">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--gold)]">practice this</p>
+                  <p className="mt-1.5 text-[13px] leading-snug text-[var(--sub)]">{AXIS_TIP[weakestNow]}</p>
+                </div>
+              )}
+
+              <p className="mt-4 font-mono text-[11px] text-[var(--faint)]">
                 {score.words} words · {score.wpm} wpm · {score.fillerCount} filler ·{" "}
                 {score.gradedBy === "ai" ? "AI graded" : "meter graded"}
               </p>
@@ -477,8 +604,12 @@ export default function Train() {
             {phase === "ready" && (
               <>
                 <GreenOrb energy={orbEnergy} size={150} onClick={start} label="speak" ariaLabel="Start speaking" />
-                <button onClick={skip} className="mt-2 text-xs tracking-wide text-[var(--faint)] transition-colors hover:text-[var(--sub)]">
-                  not this one — skip ↓
+                <button
+                  onClick={skip}
+                  aria-label="Skip this challenge"
+                  className="mt-4 rounded-full border border-[var(--line)] bg-white px-7 py-2.5 text-[12px] font-medium uppercase tracking-[0.18em] text-[var(--sub)] shadow-sm transition-all hover:border-[var(--green)] hover:text-[var(--green)] active:scale-95"
+                >
+                  skip ↓
                 </button>
               </>
             )}
@@ -498,13 +629,23 @@ export default function Train() {
                 <p className="mt-2 animate-pulse text-sm italic text-[var(--sub)]">listening back…</p>
               </>
             )}
-            {phase === "scored" && (
-              <button
-                onClick={advance}
-                className="rounded-full bg-[var(--green)] px-8 py-3 text-sm font-medium text-white transition-transform hover:scale-[1.02] active:scale-95"
-              >
-                next →
-              </button>
+            {phase === "scored" && score && (
+              <div className="flex items-center gap-3">
+                {score.overall < 75 && (
+                  <button
+                    onClick={retry}
+                    className="rounded-full border border-[var(--line)] bg-white px-6 py-3 text-sm font-medium text-[var(--sub)] transition-colors hover:border-[var(--green)] hover:text-[var(--green)]"
+                  >
+                    run it back ↻
+                  </button>
+                )}
+                <button
+                  onClick={advance}
+                  className="rounded-full bg-[var(--green)] px-8 py-3 text-sm font-medium text-white transition-transform hover:scale-[1.02] active:scale-95"
+                >
+                  next →
+                </button>
+              </div>
             )}
           </div>
 
@@ -541,70 +682,97 @@ export default function Train() {
         </section>
       )}
 
-      <footer className="flex items-center justify-center pb-6">
+      <footer className="flex items-center justify-center gap-3 pb-6">
         <button
-          onClick={() => setMenuOpen((o) => !o)}
+          onClick={() => setSheet(sheet === "progress" ? null : "progress")}
           className="rounded-full border border-[var(--line)] px-5 py-1.5 text-[11px] uppercase tracking-[0.18em] text-[var(--sub)] transition-colors hover:border-[var(--green)] hover:text-[var(--green)]"
         >
-          {menuOpen ? "close" : "menu"}
+          progress
+        </button>
+        <button
+          onClick={() => setSheet(sheet === "settings" ? null : "settings")}
+          className="rounded-full border border-[var(--line)] px-5 py-1.5 text-[11px] uppercase tracking-[0.18em] text-[var(--sub)] transition-colors hover:border-[var(--green)] hover:text-[var(--green)]"
+        >
+          settings
         </button>
       </footer>
 
-      {menuOpen && (
-        <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/20 backdrop-blur-[2px]" onClick={() => setMenuOpen(false)}>
+      {sheet !== null && (
+        <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/20 backdrop-blur-[2px]" onClick={() => setSheet(null)}>
           <div
             className="fade-up mb-0 max-h-[80dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--line)] bg-[var(--bg)] p-6 sm:mb-6 sm:rounded-3xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex flex-col items-center">
-              <p className="text-[11px] uppercase tracking-[0.25em] text-[var(--sub)]">your shape so far</p>
-              <RadarChart scores={agg} animate={false} size={220} />
-              <p className="font-mono text-[11px] text-[var(--faint)]">
-                {state.completed} challenges spoken · {member ? "member" : "guest — progress lives on this device"}
-              </p>
-            </div>
-
-            <div className="mt-6">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--sub)]">feed me more of</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {INTEREST_TAGS.map((tag) => {
-                  const on = state.profile.interests.includes(tag);
-                  return (
-                    <button
-                      key={tag}
-                      onClick={() => {
-                        const interests = on
-                          ? state.profile.interests.filter((t) => t !== tag)
-                          : [...state.profile.interests, tag];
-                        persist({ ...state, profile: { ...state.profile, interests } });
-                      }}
-                      className={`rounded-full border px-3.5 py-1 text-xs transition-colors ${
-                        on ? "border-[var(--green)] bg-[var(--green)] text-white" : "border-[var(--line)] text-[var(--sub)]"
-                      }`}
-                    >
-                      {tag}
-                    </button>
-                  );
-                })}
+            {sheet === "progress" && (
+              <div className="flex flex-col items-center">
+                <p className="text-[11px] uppercase tracking-[0.25em] text-[var(--sub)]">your shape so far</p>
+                <RadarChart scores={agg} animate={false} size={220} />
+                <p className="font-mono text-[11px] text-[var(--faint)]">
+                  {state.completed} challenges spoken · {member ? "member" : "guest — progress lives on this device"}
+                </p>
               </div>
-            </div>
+            )}
 
-            <div className="mt-6 flex items-center justify-between">
-              <Link href="/" className="text-xs text-[var(--sub)] underline-offset-4 hover:underline">
-                about articulate
-              </Link>
-              <button
-                onClick={() => {
-                  if (window.confirm("Erase all progress on this device?")) {
-                    persist({ history: [], profile: { interests: [], role: "" }, completed: 0 });
-                    setMenuOpen(false);
-                  }
-                }}
-                className="text-xs text-[var(--faint)] hover:text-red-600"
-              >
-                reset progress
-              </button>
-            </div>
+            {sheet === "settings" && (
+              <>
+                <p className="text-center text-[11px] uppercase tracking-[0.25em] text-[var(--sub)]">settings</p>
+
+                <div className="mt-5">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--sub)]">feed me more of</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {INTEREST_TAGS.map((tag) => {
+                      const on = state.profile.interests.includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          onClick={() => {
+                            const interests = on
+                              ? state.profile.interests.filter((t) => t !== tag)
+                              : [...state.profile.interests, tag];
+                            persist({ ...state, profile: { ...state.profile, interests } });
+                          }}
+                          className={`rounded-full border px-3.5 py-1 text-xs transition-colors ${
+                            on ? "border-[var(--green)] bg-[var(--green)] text-white" : "border-[var(--line)] text-[var(--sub)]"
+                          }`}
+                        >
+                          {tag}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-7">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--sub)]">membership</p>
+                  {member ? (
+                    <p className="mt-2 text-sm text-[var(--sub)]">
+                      You&rsquo;re a member — unlimited challenges, AI grading on every answer.
+                    </p>
+                  ) : (
+                    <div className="mt-3 flex flex-col items-center">{membershipPanel}</div>
+                  )}
+                </div>
+
+                <div className="mt-7 flex items-center justify-between border-t border-[var(--line)] pt-4">
+                  <Link href="/" className="text-xs text-[var(--sub)] underline-offset-4 hover:underline">
+                    about articulate
+                  </Link>
+                  {member && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm("Erase all progress on this device?")) {
+                          persist({ history: [], profile: { interests: [], role: "" }, completed: 0 });
+                          setSheet(null);
+                        }
+                      }}
+                      className="text-xs text-[var(--faint)] hover:text-red-600"
+                    >
+                      reset progress
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
