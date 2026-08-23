@@ -15,7 +15,7 @@ export const maxDuration = 30;
 // 3. { email }      — restore on a new device by receipt email.
 
 export async function POST(req: Request) {
-  let body: { session_id?: string; token?: string; email?: string };
+  let body: { session_id?: string; token?: string; email?: string; supabase_token?: string };
   try {
     body = await req.json();
   } catch {
@@ -39,6 +39,26 @@ export async function POST(req: Request) {
       const { ok } = await subscriptionActive(ent.sub);
       if (!ok) return NextResponse.json({ error: "subscription inactive" }, { status: 402 });
       return mint(ent.cus, ent.sub);
+    }
+
+    // 4. { supabase_token } — signed-in user; their email is verified, so an
+    // active subscription on it entitles this device without typing anything.
+    if (body.supabase_token) {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (url && anon) {
+        const r = await fetch(`${url}/auth/v1/user`, {
+          headers: { apikey: anon, Authorization: `Bearer ${body.supabase_token}` },
+        });
+        if (r.ok) {
+          const u = (await r.json()) as { email?: string };
+          if (u.email) {
+            const found = await findSubscriptionByEmail(u.email);
+            if (found) return mint(found.cus, found.sub);
+          }
+        }
+      }
+      return NextResponse.json({ error: "no active membership" }, { status: 402 });
     }
 
     if (body.email && body.email.includes("@") && body.email.length < 200) {

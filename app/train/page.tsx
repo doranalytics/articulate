@@ -9,6 +9,8 @@ import { AXIS_LABEL, pickChallenge } from "@/lib/challenges";
 import { countFillers, scoreQuiz, wordsOf, type QuizScore } from "@/lib/scoring";
 import { startSpeech, speechSupported, type SpeechSession } from "@/lib/speech";
 import { aggregates, loadState, saveState, weakestAxis, type SavedState } from "@/lib/store";
+import { supabase } from "@/lib/supabase";
+import type { Session } from "@supabase/supabase-js";
 
 type Phase = "ready" | "listening" | "grading" | "scored" | "chart";
 
@@ -73,8 +75,14 @@ export default function Train() {
   const [payBusy, setPayBusy] = useState<string | null>(null);
   const [restoreEmail, setRestoreEmail] = useState("");
   const [payError, setPayError] = useState<string | null>(null);
+  const [authEmail, setAuthEmail] = useState<string | null>(null);
+  const [acctEmail, setAcctEmail] = useState("");
+  const [authSent, setAuthSent] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const session = useRef<SpeechSession | null>(null);
+  const sbSession = useRef<Session | null>(null);
+  const memberRef = useRef(false);
   const finalRef = useRef("");
   const interimRef = useRef("");
   const pausesRef = useRef(0);
@@ -83,6 +91,7 @@ export default function Train() {
   const stateRef = useRef<SavedState | null>(null);
   const transcriptBox = useRef<HTMLDivElement>(null);
   stateRef.current = state;
+  memberRef.current = member;
 
   // ---- membership ----
   const adoptToken = useCallback((t: MemberToken) => {
@@ -146,6 +155,89 @@ export default function Train() {
   const persist = useCallback((next: SavedState) => {
     setState(next);
     saveState(next);
+    // Mirror to the cloud when signed in — fire and forget, local is truth.
+    const sess = sbSession.current;
+    const sb = supabase();
+    if (sess && sb) {
+      void sb
+        .from("user_state")
+        .upsert({
+          user_id: sess.user.id,
+          email: sess.user.email ?? null,
+          state: next,
+          updated_at: new Date().toISOString(),
+        })
+        .then(() => {});
+    }
+  }, []);
+
+  // On sign-in: pull the cloud copy, keep whichever run is further along,
+  // then push the winner back and check the verified email for a membership.
+  const syncFromCloud = useCallback(
+    async (sess: Session) => {
+      const sb = supabase();
+      if (!sb) return;
+      const local = stateRef.current ?? loadState();
+      try {
+        const { data } = await sb
+          .from("user_state")
+          .select("state")
+          .eq("user_id", sess.user.id)
+          .maybeSingle();
+        const remote = (data?.state ?? null) as SavedState | null;
+        const winner = remote && remote.completed > local.completed ? remote : local;
+        const interests = Array.from(
+          new Set([...(local.profile.interests ?? []), ...(remote?.profile.interests ?? [])]),
+        );
+        persist({ ...winner, profile: { ...winner.profile, interests } });
+      } catch {}
+      if (!memberRef.current) {
+        try {
+          const res = await fetch("/api/entitlement", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ supabase_token: sess.access_token }),
+          });
+          if (res.ok) adoptToken((await res.json()) as MemberToken);
+        } catch {}
+      }
+    },
+    [persist, adoptToken],
+  );
+
+  useEffect(() => {
+    const sb = supabase();
+    if (!sb) return;
+    void sb.auth.getSession().then(({ data }) => {
+      sbSession.current = data.session;
+      setAuthEmail(data.session?.user.email ?? null);
+    });
+    const { data: sub } = sb.auth.onAuthStateChange((event, sess) => {
+      sbSession.current = sess;
+      setAuthEmail(sess?.user.email ?? null);
+      if (event === "SIGNED_IN" && sess) void syncFromCloud(sess);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, [syncFromCloud]);
+
+  const sendMagicLink = useCallback(async () => {
+    const sb = supabase();
+    const email = acctEmail.trim();
+    if (!sb || !email.includes("@")) return;
+    setAuthError(null);
+    const { error: err } = await sb.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/train` },
+    });
+    if (err) setAuthError(err.message);
+    else setAuthSent(true);
+  }, [acctEmail]);
+
+  const signOut = useCallback(async () => {
+    await supabase()?.auth.signOut();
+    sbSession.current = null;
+    setAuthEmail(null);
+    setAuthSent(false);
   }, []);
 
   const locked = !member && (state?.completed ?? 0) >= FREE_GAMES;
@@ -679,6 +771,14 @@ export default function Train() {
           >
             keep going →
           </button>
+          {!authEmail && (
+            <button
+              onClick={() => setSheet("settings")}
+              className="mt-4 text-xs text-[var(--faint)] underline-offset-4 transition-colors hover:text-[var(--sub)] hover:underline"
+            >
+              save your shape — sign in with a magic link
+            </button>
+          )}
         </section>
       )}
 
@@ -740,6 +840,50 @@ export default function Train() {
                       );
                     })}
                   </div>
+                </div>
+
+                <div className="mt-7">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--sub)]">account</p>
+                  {authEmail ? (
+                    <div className="mt-2 flex items-center justify-between gap-3">
+                      <p className="min-w-0 truncate text-sm text-[var(--sub)]">
+                        signed in as <span className="font-medium text-[var(--ink)]">{authEmail}</span>
+                      </p>
+                      <button
+                        onClick={signOut}
+                        className="shrink-0 text-xs text-[var(--faint)] underline-offset-4 hover:underline"
+                      >
+                        sign out
+                      </button>
+                    </div>
+                  ) : authSent ? (
+                    <p className="mt-2 text-sm text-[var(--sub)]">
+                      Check your email — your sign-in link is on its way.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-2 text-xs text-[var(--faint)]">
+                        no password — a magic link saves your progress across devices
+                      </p>
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="email"
+                          value={acctEmail}
+                          onChange={(e) => setAcctEmail(e.target.value)}
+                          placeholder="you@wherever.com"
+                          className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--green)]"
+                        />
+                        <button
+                          onClick={sendMagicLink}
+                          disabled={!acctEmail.includes("@")}
+                          className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
+                        >
+                          send link
+                        </button>
+                      </div>
+                      {authError && <p className="mt-2 text-xs text-red-700">{authError}</p>}
+                    </>
+                  )}
                 </div>
 
                 <div className="mt-7">
