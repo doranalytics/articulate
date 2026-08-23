@@ -70,7 +70,9 @@ export default function Train() {
   const [seconds, setSeconds] = useState(0);
   const [score, setScore] = useState<QuizScore & { gradedBy?: "ai" | "local" } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<null | "progress" | "settings">(null);
+  const [sheet, setSheet] = useState<null | "progress" | "settings" | "join">(null);
+  const [plan, setPlan] = useState<"monthly" | "annual">("annual");
+  const [restoreOpen, setRestoreOpen] = useState(false);
   const [supported, setSupported] = useState(true);
   const [member, setMember] = useState(false);
   const [payBusy, setPayBusy] = useState<string | null>(null);
@@ -505,58 +507,96 @@ export default function Train() {
   const orbEnergy =
     phase === "listening" ? 0.3 + level * 0.7 : phase === "grading" ? 0.9 : 0.15;
 
-  // Plans + restore — shown on the post-10 paywall and in settings (join anytime).
-  const membershipPanel = (
-    <>
-      <div className="grid w-full max-w-sm gap-3">
-        <button
-          onClick={() => startCheckout("annual")}
-          disabled={payBusy !== null}
-          className="relative rounded-2xl border-2 border-[var(--green)] bg-white p-5 text-left transition-transform hover:scale-[1.01] disabled:opacity-50"
-        >
+  // Plan picker — select a plan, then one explicit "continue" goes to Stripe.
+  // Shown on the post-10 paywall and in the join sheet.
+  const planCard = (p: "monthly" | "annual") => {
+    const selected = plan === p;
+    return (
+      <button
+        onClick={() => setPlan(p)}
+        aria-pressed={selected}
+        className={`relative w-full rounded-2xl border-2 bg-white p-5 text-left transition-colors ${
+          selected ? "border-[var(--green)]" : "border-[var(--line)] hover:border-[var(--sub)]"
+        }`}
+      >
+        {p === "annual" && (
           <span className="absolute -top-2.5 right-4 rounded-full bg-[var(--gold)] px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
             save 33%
           </span>
-          <div className="text-lg font-semibold">
-            $10<span className="text-sm font-normal text-[var(--sub)]"> / month</span>
+        )}
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-lg font-semibold">
+              {p === "annual" ? "$10" : "$15"}
+              <span className="text-sm font-normal text-[var(--sub)]"> / month</span>
+            </div>
+            <div className="text-xs text-[var(--sub)]">
+              {p === "annual" ? "billed annually — $120/yr" : "billed monthly"}
+            </div>
           </div>
-          <div className="text-xs text-[var(--sub)]">billed annually — $120/yr</div>
-          {payBusy === "annual" && <div className="mt-1 text-xs text-[var(--green)]">opening checkout…</div>}
-        </button>
-        <button
-          onClick={() => startCheckout("monthly")}
-          disabled={payBusy !== null}
-          className="rounded-2xl border border-[var(--line)] bg-white p-5 text-left transition-transform hover:scale-[1.01] disabled:opacity-50"
-        >
-          <div className="text-lg font-semibold">
-            $15<span className="text-sm font-normal text-[var(--sub)]"> / month</span>
-          </div>
-          <div className="text-xs text-[var(--sub)]">billed monthly</div>
-          {payBusy === "monthly" && <div className="mt-1 text-xs text-[var(--green)]">opening checkout…</div>}
-        </button>
-      </div>
-
-      <div className="mt-6 w-full max-w-sm">
-        <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--faint)]">already a member?</p>
-        <div className="mt-2 flex gap-2">
-          <input
-            type="email"
-            value={restoreEmail}
-            onChange={(e) => setRestoreEmail(e.target.value)}
-            placeholder="your receipt email"
-            className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--green)]"
-          />
-          <button
-            onClick={restore}
-            disabled={payBusy !== null || !restoreEmail.includes("@")}
-            className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
+          <span
+            className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
+              selected ? "border-[var(--green)]" : "border-[var(--line)]"
+            }`}
           >
-            restore
-          </button>
+            {selected && <span className="h-2.5 w-2.5 rounded-full bg-[var(--green)]" />}
+          </span>
         </div>
+      </button>
+    );
+  };
+
+  const membershipPanel = (
+    <div className="w-full max-w-sm">
+      <div className="grid gap-3">
+        {planCard("annual")}
+        {planCard("monthly")}
       </div>
-      {payError && <p className="mt-3 text-sm text-red-700">{payError}</p>}
-    </>
+      <button
+        onClick={() => startCheckout(plan)}
+        disabled={payBusy !== null}
+        className="mt-5 w-full rounded-full bg-[var(--green)] px-8 py-3.5 text-[15px] font-medium text-white transition-transform hover:scale-[1.01] active:scale-95 disabled:opacity-60"
+      >
+        {payBusy === "monthly" || payBusy === "annual"
+          ? "opening secure checkout…"
+          : `Continue — ${plan === "annual" ? "$120 / year" : "$15 / month"}`}
+      </button>
+      <p className="mt-2.5 text-center text-[11px] text-[var(--faint)]">
+        secure checkout by Stripe · cancel anytime
+      </p>
+      {payError && <p className="mt-3 text-center text-sm text-red-700">{payError}</p>}
+
+      <div className="mt-6 text-center">
+        {restoreOpen ? (
+          <div className="text-left">
+            <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--faint)]">restore membership</p>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="email"
+                value={restoreEmail}
+                onChange={(e) => setRestoreEmail(e.target.value)}
+                placeholder="your receipt email"
+                className="min-w-0 flex-1 rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--green)]"
+              />
+              <button
+                onClick={restore}
+                disabled={payBusy !== null || !restoreEmail.includes("@")}
+                className="rounded-lg border border-[var(--line)] px-4 py-2 text-sm disabled:opacity-40"
+              >
+                restore
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setRestoreOpen(true)}
+            className="text-xs text-[var(--faint)] underline-offset-4 hover:text-[var(--sub)] hover:underline"
+          >
+            already a member? restore your purchase
+          </button>
+        )}
+      </div>
+    </div>
   );
 
   return (
@@ -573,7 +613,7 @@ export default function Train() {
           </span>
           {!member && (
             <button
-              onClick={() => setSheet("settings")}
+              onClick={() => setSheet("join")}
               className="rounded-full bg-[var(--green)] px-3.5 py-1 text-[11px] font-medium text-white transition-transform hover:scale-[1.03] active:scale-95"
             >
               join
@@ -829,6 +869,19 @@ export default function Train() {
               </div>
             )}
 
+            {sheet === "join" && (
+              <div className="flex flex-col items-center">
+                <p className="text-[11px] uppercase tracking-[0.25em] text-[var(--sub)]">membership</p>
+                <h3 className="mt-3 text-xl font-semibold tracking-tight">
+                  Unlimited articulate<span className="text-[var(--gold)]">.</span>
+                </h3>
+                <p className="mt-1.5 max-w-xs text-center text-[13px] leading-relaxed text-[var(--sub)]">
+                  Unlimited challenges, AI grading on every answer, and your evolving scorecard.
+                </p>
+                <div className="mt-6 flex w-full flex-col items-center">{membershipPanel}</div>
+              </div>
+            )}
+
             {sheet === "settings" && (
               <>
                 <p className="text-center text-[11px] uppercase tracking-[0.25em] text-[var(--sub)]">settings</p>
@@ -937,14 +990,17 @@ export default function Train() {
                   )}
                 </div>
 
-                <div className="mt-7">
+                <div className="mt-7 flex items-center justify-between">
                   <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--sub)]">membership</p>
                   {member ? (
-                    <p className="mt-2 text-sm text-[var(--sub)]">
-                      You&rsquo;re a member — unlimited challenges, AI grading on every answer.
-                    </p>
+                    <span className="text-sm font-medium text-[var(--green)]">member ✓</span>
                   ) : (
-                    <div className="mt-3 flex flex-col items-center">{membershipPanel}</div>
+                    <button
+                      onClick={() => setSheet("join")}
+                      className="rounded-full bg-[var(--green)] px-4 py-1.5 text-xs font-medium text-white transition-transform hover:scale-[1.02] active:scale-95"
+                    >
+                      join articulate →
+                    </button>
                   )}
                 </div>
 
