@@ -55,7 +55,17 @@ export default function Landing() {
       </section>
 
       <footer className="w-full pb-8 text-[11px] tracking-wide text-[var(--faint)]">
-        speaking well is the original status symbol
+        <p>speaking well is the original status symbol</p>
+        <p className="mt-2 text-[10px]">
+          © 2026 Doranalytics LLC ·{" "}
+          <Link href="/terms" className="underline-offset-2 hover:underline">
+            terms
+          </Link>{" "}
+          ·{" "}
+          <Link href="/privacy" className="underline-offset-2 hover:underline">
+            privacy
+          </Link>
+        </p>
       </footer>
     </main>
   );

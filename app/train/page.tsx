@@ -79,6 +79,7 @@ export default function Train() {
   const [acctEmail, setAcctEmail] = useState("");
   const [authSent, setAuthSent] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [customTag, setCustomTag] = useState("");
 
   const session = useRef<SpeechSession | null>(null);
   const sbSession = useRef<Session | null>(null);
@@ -839,6 +840,41 @@ export default function Train() {
                         </button>
                       );
                     })}
+                    {state.profile.interests
+                      .filter((t) => !INTEREST_TAGS.includes(t))
+                      .map((tag) => (
+                        <button
+                          key={tag}
+                          onClick={() =>
+                            persist({
+                              ...state,
+                              profile: {
+                                ...state.profile,
+                                interests: state.profile.interests.filter((t) => t !== tag),
+                              },
+                            })
+                          }
+                          className="rounded-full border border-[var(--green)] bg-[var(--green)] px-3.5 py-1 text-xs text-white"
+                        >
+                          {tag} ×
+                        </button>
+                      ))}
+                    <input
+                      value={customTag}
+                      onChange={(e) => setCustomTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        const t = customTag.trim().toLowerCase().slice(0, 24);
+                        setCustomTag("");
+                        if (!t || state.profile.interests.includes(t)) return;
+                        persist({
+                          ...state,
+                          profile: { ...state.profile, interests: [...state.profile.interests, t] },
+                        });
+                      }}
+                      placeholder="your own + enter"
+                      className="w-32 rounded-full border border-dashed border-[var(--line)] bg-transparent px-3.5 py-1 text-xs text-[var(--ink)] outline-none placeholder:text-[var(--faint)] focus:border-[var(--green)]"
+                    />
                   </div>
                 </div>
 

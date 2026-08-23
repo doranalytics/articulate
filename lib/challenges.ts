@@ -120,6 +120,9 @@ export function pickChallenge(
     let s = Math.random();
     if (weakest && ch.axes.includes(weakest)) s += 0.9; // feed the weak spot
     if (interests.length && ch.tags.some((t) => interests.includes(t))) s += 0.45;
+    // Typed-in interests won't match the fixed tag set — match prompt text too.
+    else if (interests.some((i) => i.length > 2 && ch.prompt.toLowerCase().includes(i.toLowerCase())))
+      s += 0.3;
     return { ch, s };
   });
   return scored.reduce((best, cur) => (cur.s > best.s ? cur : best)).ch;
