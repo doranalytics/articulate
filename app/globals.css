@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+/* Phthalo green on ivory white, whisper of gold. Elegant, technological,
+   minimal — the green orb is the only loud thing on the page. */
+:root {
+  --bg: #fbfaf5;
+  --card: #ffffff;
+  --line: #e7e5da;
+  --ink: #131714;
+  --sub: #6f7a72;
+  --faint: #a9b2ab;
+  --green: #123524;
+  --green-bright: #1d5c3d;
+  --green-glow: #2e8b5f;
+  --gold: #c2a14d;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-sub: var(--sub);
+  --color-green: var(--green);
+  --color-gold: var(--gold);
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--green);
+  color: #fff;
+}
+
+/* ---- the orb ---- */
+.orb {
+  position: relative;
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.55), transparent 42%),
+    radial-gradient(circle at 68% 72%, rgba(194, 161, 77, 0.28), transparent 52%),
+    radial-gradient(circle at 50% 55%, var(--green-glow), transparent 75%),
+    radial-gradient(circle at 50% 50%, var(--green-bright) 0%, var(--green) 62%, #0a2418 100%);
+  box-shadow:
+    0 24px 70px -22px rgba(18, 53, 36, 0.55),
+    inset 0 1px 8px rgba(255, 255, 255, 0.25);
+  animation: orb-breathe 5.2s ease-in-out infinite;
+}
+.orb::after {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  border-radius: 9999px;
+  border: 1px solid rgba(194, 161, 77, 0.45);
+  animation: orb-ring 5.2s ease-in-out infinite;
+}
+.orb.listening {
+  animation: orb-breathe 1.6s ease-in-out infinite;
+}
+.orb.listening::after {
+  animation: orb-ring 1.6s ease-in-out infinite;
+}
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+@keyframes orb-ring {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.035); }
+}
+
+/* level ring around the orb while listening */
+.level-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid rgba(46, 139, 95, 0.5);
+  transition: transform 90ms linear, opacity 90ms linear;
+  pointer-events: none;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up {
+  animation: fade-up 0.5s ease both;
+}
+
+@keyframes score-pop {
+  0% { opacity: 0; transform: scale(0.8); }
+  60% { transform: scale(1.06); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.score-pop {
+  animation: score-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
