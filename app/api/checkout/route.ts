@@ -5,8 +5,9 @@ export const maxDuration = 30;
 
 export async function POST(req: Request) {
   let plan: string;
+  let email: string | undefined;
   try {
-    ({ plan } = (await req.json()) as { plan: string });
+    ({ plan, email } = (await req.json()) as { plan: string; email?: string });
   } catch {
     return NextResponse.json({ error: "bad request" }, { status: 400 });
   }
@@ -15,14 +16,17 @@ export async function POST(req: Request) {
 
   const origin = new URL(req.url).origin;
   try {
-    const session = await stripe<{ url: string }>("/checkout/sessions", {
+    const params: Record<string, string> = {
       mode: "subscription",
       "line_items[0][price]": price,
       "line_items[0][quantity]": "1",
       success_url: `${origin}/train?cs={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/train`,
       allow_promotion_codes: "true",
-    });
+    };
+    // Signed-in buyers get their email prefilled so account and membership match.
+    if (email && email.includes("@") && email.length < 200) params.customer_email = email;
+    const session = await stripe<{ url: string }>("/checkout/sessions", params);
     return NextResponse.json({ url: session.url });
   } catch (e) {
     // Never surface raw Stripe errors to customers.

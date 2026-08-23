@@ -70,9 +70,11 @@ export default function Train() {
   const [seconds, setSeconds] = useState(0);
   const [score, setScore] = useState<QuizScore & { gradedBy?: "ai" | "local" } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sheet, setSheet] = useState<null | "progress" | "settings" | "join">(null);
+  const [sheet, setSheet] = useState<null | "profile" | "join">(null);
   const [plan, setPlan] = useState<"monthly" | "annual">("annual");
   const [restoreOpen, setRestoreOpen] = useState(false);
+  const [joinedEmail, setJoinedEmail] = useState<string | null>(null);
+  const [skipped, setSkipped] = useState<Challenge[]>([]);
   const [supported, setSupported] = useState(true);
   const [member, setMember] = useState(false);
   const [payBusy, setPayBusy] = useState<string | null>(null);
@@ -139,7 +141,11 @@ export default function Train() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: cs }),
       }).then(async (res) => {
-        if (res.ok) adoptToken((await res.json()) as MemberToken);
+        if (res.ok) {
+          const d = (await res.json()) as MemberToken & { email?: string };
+          adoptToken(d);
+          if (d.email) setJoinedEmail(d.email);
+        }
       });
     }
 
@@ -262,7 +268,7 @@ export default function Train() {
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, email: sbSession.current?.user.email }),
       });
       const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok || !data.url) throw new Error(data.error || "checkout failed");
@@ -330,6 +336,7 @@ export default function Train() {
         ],
       };
       persist(next);
+      setSkipped([]);
       posthog.capture("challenge_completed", {
         overall: result.overall,
         graded_by: result.gradedBy,
@@ -443,8 +450,25 @@ export default function Train() {
   const skip = useCallback(() => {
     const s = stateRef.current;
     if (!s || !ch || phase === "listening" || phase === "grading") return;
+    setSkipped((prev) => [...prev, ch]);
     nextChallenge(s, ch.id);
   }, [ch, phase, nextChallenge]);
+
+  // Skipped challenges can be revisited; completing one burns the bridge.
+  const goBack = useCallback(() => {
+    if (phase !== "ready") return;
+    setSkipped((prev) => {
+      const last = prev[prev.length - 1];
+      if (!last) return prev;
+      setCh(last);
+      setScore(null);
+      setLiveText("");
+      setLiveWords(0);
+      setLiveFillers(0);
+      setSeconds(0);
+      return prev.slice(0, -1);
+    });
+  }, [phase]);
 
   // Same challenge, fresh attempt — the "run it back" path off a weak score.
   const retry = useCallback(() => {
@@ -473,6 +497,10 @@ export default function Train() {
         wheelAcc.current = 0;
         skipCooldown.current = now;
         skip();
+      } else if (wheelAcc.current < -140) {
+        wheelAcc.current = 0;
+        skipCooldown.current = now;
+        goBack();
       }
     };
     const onTouchStart = (e: TouchEvent) => {
@@ -483,9 +511,13 @@ export default function Train() {
       touchY.current = null;
       if (start === null) return;
       const end = e.changedTouches[0]?.clientY ?? start;
-      if (Math.abs(start - end) > 70 && performance.now() - skipCooldown.current > 900) {
+      if (performance.now() - skipCooldown.current < 900) return;
+      if (start - end > 70) {
         skipCooldown.current = performance.now();
-        skip();
+        skip(); // swipe up → next
+      } else if (end - start > 70) {
+        skipCooldown.current = performance.now();
+        goBack(); // swipe down → back to a skipped one
       }
     };
     window.addEventListener("wheel", onWheel, { passive: true });
@@ -496,10 +528,15 @@ export default function Train() {
       window.removeEventListener("touchstart", onTouchStart);
       window.removeEventListener("touchend", onTouchEnd);
     };
-  }, [phase, locked, sheet, skip]);
+  }, [phase, locked, sheet, skip, goBack]);
 
   if (!state || !ch) return <main className="min-h-dvh" />;
   const agg = aggregates(state.history);
+  const overalls = state.history.map((h) => h.overall);
+  const bestScore = overalls.length ? Math.max(...overalls) : 0;
+  const avgScore = overalls.length
+    ? Math.round(overalls.slice(-10).reduce((a, b) => a + b, 0) / Math.min(overalls.length, 10))
+    : 0;
   const weakestNow = score
     ? ((Object.entries(score.axes) as [Axis, number][]).sort((a, b) => a[1] - b[1])[0]?.[0] ?? null)
     : null;
@@ -633,18 +670,64 @@ export default function Train() {
           {error}
         </div>
       )}
+      {joinedEmail && (
+        <div className="mt-6 flex items-start justify-between gap-3 rounded-xl border border-[var(--green)] bg-white p-4 text-left text-sm text-[var(--sub)]">
+          <p>
+            <span className="font-semibold text-[var(--green)]">membership active ✓</span> — we
+            emailed a sign-in link to{" "}
+            <span className="font-medium text-[var(--ink)]">{joinedEmail}</span> so your
+            membership and progress follow you on any device.
+          </p>
+          <button
+            onClick={() => setJoinedEmail(null)}
+            aria-label="Dismiss"
+            className="shrink-0 text-[var(--faint)] hover:text-[var(--sub)]"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* ---- paywall ---- */}
       {locked && phase !== "chart" && (
-        <section className="flex flex-1 flex-col items-center justify-center py-8 text-center">
-          <GreenOrb energy={0.35} size={120} />
-          <h2 className="mt-6 text-2xl font-semibold tracking-tight">
-            Your ten free challenges are spoken<span className="text-[var(--gold)]">.</span>
-          </h2>
-          <p className="mt-3 max-w-sm text-[15px] leading-relaxed text-[var(--sub)]">
-            Membership is unlimited challenges, AI grading on every answer, and your evolving
-            scorecard. Cancel anytime.
+        <section className="flex flex-1 flex-col items-center justify-center py-10 text-center">
+          <GreenOrb energy={0.35} size={104} />
+          <p className="mt-6 text-[10px] uppercase tracking-[0.3em] text-[var(--gold)]">
+            ten free challenges · all spoken
           </p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+            Don&rsquo;t stop improving<span className="text-[var(--gold)]">.</span>
+          </h2>
+
+          <div className="mt-7 grid w-full max-w-sm grid-cols-3 divide-x divide-[var(--line)] rounded-2xl border border-[var(--line)] bg-white py-4 shadow-sm">
+            <div>
+              <div className="font-mono text-2xl font-semibold text-[var(--green)]">{state.completed}</div>
+              <div className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[var(--faint)]">spoken</div>
+            </div>
+            <div>
+              <div className="font-mono text-2xl font-semibold text-[var(--green)]">{bestScore}</div>
+              <div className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[var(--faint)]">best score</div>
+            </div>
+            <div>
+              <div className="font-mono text-2xl font-semibold text-[var(--green)]">{avgScore}</div>
+              <div className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-[var(--faint)]">recent avg</div>
+            </div>
+          </div>
+
+          <ul className="mt-7 space-y-2.5 text-left text-[14px] leading-snug text-[var(--sub)]">
+            {[
+              "Unlimited challenges, every day",
+              "AI grading and coach’s notes on every answer",
+              "Your scorecard shape, tracked over time",
+            ].map((b) => (
+              <li key={b} className="flex items-start gap-2.5">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--green)] text-[10px] font-bold text-white">
+                  ✓
+                </span>
+                {b}
+              </li>
+            ))}
+          </ul>
 
           <div className="mt-8 flex w-full flex-col items-center">{membershipPanel}</div>
         </section>
@@ -759,6 +842,14 @@ export default function Train() {
                 >
                   skip ↓
                 </button>
+                {skipped.length > 0 && (
+                  <button
+                    onClick={goBack}
+                    className="mt-2 text-[11px] uppercase tracking-[0.18em] text-[var(--faint)] transition-colors hover:text-[var(--sub)]"
+                  >
+                    ↑ back
+                  </button>
+                )}
               </>
             )}
             {phase === "listening" && (
@@ -829,7 +920,7 @@ export default function Train() {
           </button>
           {!authEmail && (
             <button
-              onClick={() => setSheet("settings")}
+              onClick={() => setSheet("profile")}
               className="mt-4 text-xs text-[var(--faint)] underline-offset-4 transition-colors hover:text-[var(--sub)] hover:underline"
             >
               save your shape — sign in with a magic link
@@ -838,18 +929,12 @@ export default function Train() {
         </section>
       )}
 
-      <footer className="flex items-center justify-center gap-3 pb-6">
+      <footer className="flex items-center justify-center pb-6">
         <button
-          onClick={() => setSheet(sheet === "progress" ? null : "progress")}
-          className="rounded-full border border-[var(--line)] px-5 py-1.5 text-[11px] uppercase tracking-[0.18em] text-[var(--sub)] transition-colors hover:border-[var(--green)] hover:text-[var(--green)]"
+          onClick={() => setSheet(sheet === "profile" ? null : "profile")}
+          className="rounded-full border border-[var(--line)] px-6 py-1.5 text-[11px] uppercase tracking-[0.18em] text-[var(--sub)] transition-colors hover:border-[var(--green)] hover:text-[var(--green)]"
         >
-          progress
-        </button>
-        <button
-          onClick={() => setSheet(sheet === "settings" ? null : "settings")}
-          className="rounded-full border border-[var(--line)] px-5 py-1.5 text-[11px] uppercase tracking-[0.18em] text-[var(--sub)] transition-colors hover:border-[var(--green)] hover:text-[var(--green)]"
-        >
-          settings
+          profile
         </button>
       </footer>
 
@@ -859,15 +944,6 @@ export default function Train() {
             className="fade-up mb-0 max-h-[80dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--line)] bg-[var(--bg)] p-6 sm:mb-6 sm:rounded-3xl"
             onClick={(e) => e.stopPropagation()}
           >
-            {sheet === "progress" && (
-              <div className="flex flex-col items-center">
-                <p className="text-[11px] uppercase tracking-[0.25em] text-[var(--sub)]">your shape so far</p>
-                <RadarChart scores={agg} animate={false} size={220} />
-                <p className="font-mono text-[11px] text-[var(--faint)]">
-                  {state.completed} challenges spoken · {member ? "member" : "guest — progress lives on this device"}
-                </p>
-              </div>
-            )}
 
             {sheet === "join" && (
               <div className="flex flex-col items-center">
@@ -882,11 +958,18 @@ export default function Train() {
               </div>
             )}
 
-            {sheet === "settings" && (
+            {sheet === "profile" && (
               <>
-                <p className="text-center text-[11px] uppercase tracking-[0.25em] text-[var(--sub)]">settings</p>
+                <div className="flex flex-col items-center">
+                  <p className="text-[11px] uppercase tracking-[0.25em] text-[var(--sub)]">your shape so far</p>
+                  <RadarChart scores={agg} animate={false} size={200} />
+                  <p className="font-mono text-[11px] text-[var(--faint)]">
+                    {state.completed} challenges spoken ·{" "}
+                    {member ? "member" : "guest — progress lives on this device"}
+                  </p>
+                </div>
 
-                <div className="mt-5">
+                <div className="mt-7 border-t border-[var(--line)] pt-5">
                   <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--sub)]">feed me more of</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {INTEREST_TAGS.map((tag) => {

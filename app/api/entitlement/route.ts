@@ -25,11 +25,27 @@ export async function POST(req: Request) {
 
   try {
     if (body.session_id && /^cs_[a-zA-Z0-9_]+$/.test(body.session_id)) {
-      const session = await stripe<{ subscription?: string; customer?: string; status: string }>(
-        `/checkout/sessions/${body.session_id}`,
-      );
+      const session = await stripe<{
+        subscription?: string;
+        customer?: string;
+        status: string;
+        customer_details?: { email?: string };
+      }>(`/checkout/sessions/${body.session_id}`);
       if (session.status === "complete" && session.subscription && session.customer) {
-        return mint(session.customer, session.subscription);
+        // Paying IS joining: create the account from the checkout email and
+        // send the magic link, so membership + progress follow them anywhere.
+        const email = session.customer_details?.email;
+        if (email) {
+          void fetch(`${SUPABASE_URL}/auth/v1/otp`, {
+            method: "POST",
+            headers: { apikey: SUPABASE_ANON_KEY, "content-type": "application/json" },
+            body: JSON.stringify({
+              email,
+              options: { email_redirect_to: "https://articulate.lol/train" },
+            }),
+          }).catch(() => {});
+        }
+        return mint(session.customer, session.subscription, email);
       }
       return NextResponse.json({ error: "checkout not completed" }, { status: 402 });
     }
@@ -74,8 +90,8 @@ export async function POST(req: Request) {
   return NextResponse.json({ error: "bad request" }, { status: 400 });
 }
 
-function mint(cus: string, sub: string) {
+function mint(cus: string, sub: string, email?: string) {
   const token = signEntitlement(cus, sub);
   const exp = readEntitlement(token)!.exp;
-  return NextResponse.json({ token, exp });
+  return NextResponse.json(email ? { token, exp, email } : { token, exp });
 }
