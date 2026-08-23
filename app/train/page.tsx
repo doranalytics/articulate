@@ -11,6 +11,7 @@ import { startSpeech, speechSupported, type SpeechSession } from "@/lib/speech";
 import { aggregates, loadState, saveState, weakestAxis, type SavedState } from "@/lib/store";
 import { supabase } from "@/lib/supabase";
 import type { Session } from "@supabase/supabase-js";
+import posthog from "posthog-js";
 
 type Phase = "ready" | "listening" | "grading" | "scored" | "chart";
 
@@ -96,6 +97,7 @@ export default function Train() {
 
   // ---- membership ----
   const adoptToken = useCallback((t: MemberToken) => {
+    if (!memberRef.current) posthog.capture("member_activated");
     saveMember(t);
     setMember(true);
   }, []);
@@ -231,7 +233,10 @@ export default function Train() {
       options: { emailRedirectTo: `${window.location.origin}/train` },
     });
     if (err) setAuthError(err.message);
-    else setAuthSent(true);
+    else {
+      setAuthSent(true);
+      posthog.capture("magic_link_sent");
+    }
   }, [acctEmail]);
 
   const signOut = useCallback(async () => {
@@ -243,7 +248,12 @@ export default function Train() {
 
   const locked = !member && (state?.completed ?? 0) >= FREE_GAMES;
 
+  useEffect(() => {
+    if (locked) posthog.capture("paywall_shown");
+  }, [locked]);
+
   const startCheckout = useCallback(async (plan: "monthly" | "annual") => {
+    posthog.capture("checkout_started", { plan });
     setPayBusy(plan);
     setPayError(null);
     try {
@@ -318,6 +328,11 @@ export default function Train() {
         ],
       };
       persist(next);
+      posthog.capture("challenge_completed", {
+        overall: result.overall,
+        graded_by: result.gradedBy,
+        completed_total: next.completed,
+      });
     };
 
     const wantAi = ch.axes.some((a) => a !== "filler") && wordsOf(transcript).length >= 6;

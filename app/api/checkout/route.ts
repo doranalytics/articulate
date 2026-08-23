@@ -25,8 +25,10 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ url: session.url });
   } catch (e) {
+    // Never surface raw Stripe errors to customers.
+    console.error("checkout failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "checkout failed" },
+      { error: "Checkout is temporarily unavailable — please try again in a minute." },
       { status: 502 },
     );
   }

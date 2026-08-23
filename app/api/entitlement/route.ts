@@ -67,8 +67,10 @@ export async function POST(req: Request) {
       return mint(found.cus, found.sub);
     }
   } catch (e) {
+    // Never surface raw Stripe errors to customers.
+    console.error("entitlement failed:", e instanceof Error ? e.message : e);
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "verification failed" },
+      { error: "Couldn't verify membership right now — please try again in a minute." },
       { status: 502 },
     );
   }
