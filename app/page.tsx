@@ -28,9 +28,8 @@ export default function Landing() {
           Speak better<span className="text-[var(--gold)]">.</span>
         </h1>
         <p className="mt-5 max-w-md text-[15px] leading-relaxed text-[var(--sub)]">
-          Win the meeting, the interview, the room. Two-minute out-loud reps, scored instantly by
-          AI — so the filler disappears, the right word shows up on time, and you say more with
-          less.
+          People size you up the second you start talking. Two minutes a day makes you the
+          sharpest voice in the room.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
