@@ -74,6 +74,7 @@ export default function Train() {
   const [plan, setPlan] = useState<"monthly" | "annual">("annual");
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [joinedEmail, setJoinedEmail] = useState<string | null>(null);
+  const [buyerEmail, setBuyerEmail] = useState("");
   const [skipped, setSkipped] = useState<Challenge[]>([]);
   const [supported, setSupported] = useState(true);
   const [member, setMember] = useState(false);
@@ -268,7 +269,12 @@ export default function Train() {
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, email: sbSession.current?.user.email }),
+        body: JSON.stringify({
+          plan,
+          email:
+            sbSession.current?.user.email ??
+            (buyerEmail.includes("@") ? buyerEmail.trim() : undefined),
+        }),
       });
       const data = (await res.json()) as { url?: string; error?: string };
       if (!res.ok || !data.url) throw new Error(data.error || "checkout failed");
@@ -277,7 +283,7 @@ export default function Train() {
       setPayError(e instanceof Error ? e.message : "checkout failed");
       setPayBusy(null);
     }
-  }, []);
+  }, [buyerEmail]);
 
   const restore = useCallback(async () => {
     const email = restoreEmail.trim();
@@ -589,9 +595,31 @@ export default function Train() {
         {planCard("annual")}
         {planCard("monthly")}
       </div>
+      {!authEmail && (
+        <div className="mt-4 text-left">
+          <label className="text-[11px] uppercase tracking-[0.2em] text-[var(--faint)]">
+            your email
+          </label>
+          <input
+            type="email"
+            value={buyerEmail}
+            onChange={(e) => setBuyerEmail(e.target.value)}
+            placeholder="you@wherever.com"
+            className="mt-1.5 w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--green)]"
+          />
+          <p className="mt-1.5 text-[11px] leading-snug text-[var(--faint)]">
+            this becomes your account — receipts, sign-in link, and your membership on any device
+          </p>
+        </div>
+      )}
+      {authEmail && (
+        <p className="mt-4 text-[12px] text-[var(--faint)]">
+          joining as <span className="font-medium text-[var(--sub)]">{authEmail}</span>
+        </p>
+      )}
       <button
         onClick={() => startCheckout(plan)}
-        disabled={payBusy !== null}
+        disabled={payBusy !== null || (!authEmail && !buyerEmail.includes("@"))}
         className="mt-5 w-full rounded-full bg-[var(--green)] px-8 py-3.5 text-[15px] font-medium text-white transition-transform hover:scale-[1.01] active:scale-95 disabled:opacity-60"
       >
         {payBusy === "monthly" || payBusy === "annual"
@@ -692,12 +720,13 @@ export default function Train() {
       {locked && phase !== "chart" && (
         <section className="flex flex-1 flex-col items-center justify-center py-10 text-center">
           <GreenOrb energy={0.35} size={104} />
-          <p className="mt-6 text-[10px] uppercase tracking-[0.3em] text-[var(--gold)]">
-            ten free challenges · all spoken
-          </p>
+          <p className="mt-6 text-[10px] uppercase tracking-[0.3em] text-[var(--gold)]">membership</p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
             Don&rsquo;t stop improving<span className="text-[var(--gold)]">.</span>
           </h2>
+          <p className="mt-2.5 text-sm text-[var(--sub)]">
+            You&rsquo;ve spoken your ten free challenges — and it shows.
+          </p>
 
           <div className="mt-7 grid w-full max-w-sm grid-cols-3 divide-x divide-[var(--line)] rounded-2xl border border-[var(--line)] bg-white py-4 shadow-sm">
             <div>
@@ -939,9 +968,12 @@ export default function Train() {
       </footer>
 
       {sheet !== null && (
-        <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/20 backdrop-blur-[2px]" onClick={() => setSheet(null)}>
+        <div
+          className="fixed inset-0 z-20 flex items-center justify-center bg-black/20 p-4 backdrop-blur-[2px] sm:p-6"
+          onClick={() => setSheet(null)}
+        >
           <div
-            className="fade-up mb-0 max-h-[80dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-[var(--line)] bg-[var(--bg)] p-6 sm:mb-6 sm:rounded-3xl"
+            className="fade-up max-h-[85dvh] w-full max-w-xl overflow-y-auto rounded-3xl border border-[var(--line)] bg-[var(--bg)] p-6 shadow-[0_24px_60px_-24px_rgba(18,53,36,0.4)]"
             onClick={(e) => e.stopPropagation()}
           >
 

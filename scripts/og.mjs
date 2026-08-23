@@ -14,9 +14,10 @@ const svg = `
   <circle cx="955" cy="315" r="170" fill="url(#orb)"/>
   <circle cx="955" cy="315" r="196" fill="none" stroke="#c2a14d" stroke-width="3" opacity="0.8"/>
   <circle cx="895" cy="250" r="38" fill="#ffffff" opacity="0.28"/>
-  <text x="90" y="305" font-family="Helvetica, Arial, sans-serif" font-weight="600" font-size="110" letter-spacing="-3" fill="#131714">articulate<tspan fill="#c2a14d">.</tspan></text>
-  <text x="94" y="375" font-family="Helvetica, Arial, sans-serif" font-size="40" fill="#123524">say more. with less.</text>
-  <text x="94" y="480" font-family="Helvetica, Arial, sans-serif" font-size="26" fill="#6f7a72">voice-only training — conciseness · vocabulary · articulation · filler</text>
+  <text x="90" y="285" font-family="Helvetica, Arial, sans-serif" font-weight="600" font-size="110" letter-spacing="-3" fill="#131714">articulate<tspan fill="#c2a14d">.</tspan></text>
+  <text x="94" y="355" font-family="Helvetica, Arial, sans-serif" font-size="38" fill="#123524">speaking well is the</text>
+  <text x="94" y="405" font-family="Helvetica, Arial, sans-serif" font-size="38" fill="#123524">original status symbol.</text>
+  <text x="94" y="490" font-family="Helvetica, Arial, sans-serif" font-size="26" fill="#6f7a72">two-minute voice reps, scored by AI — articulate.lol</text>
 </svg>`;
 
 await sharp(Buffer.from(svg)).png().toFile("app/opengraph-image.png");

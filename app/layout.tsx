@@ -7,9 +7,9 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://articulate.lol"),
-  title: "articulate. — training for saying more with less",
+  title: "articulate. — speaking well is the original status symbol",
   description:
-    "A voice-only training ground for becoming more articulate. Describe, explain, make analogies — scored live on conciseness, vocabulary, articulation, and filler. No typing allowed.",
+    "People size you up the second you start talking. Two-minute out-loud reps, scored instantly by AI — sound sharper in every room.",
 };
 
 export const viewport: Viewport = {
