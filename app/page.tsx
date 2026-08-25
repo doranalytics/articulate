@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GreenOrb } from "@/components/GreenOrb";
 import { AXIS_LABEL, AXES } from "@/lib/challenges";
+import { track } from "@/lib/analytics";
 
 export default function Landing() {
   const router = useRouter();
@@ -22,7 +23,15 @@ export default function Landing() {
       </header>
 
       <section className="flex flex-1 flex-col items-center justify-center py-16">
-        <GreenOrb energy={0.22} size={190} onClick={() => router.push("/train")} ariaLabel="Begin training" />
+        <GreenOrb
+          energy={0.22}
+          size={190}
+          onClick={() => {
+            track("landing_begin_clicked", { via: "orb" });
+            router.push("/train");
+          }}
+          ariaLabel="Begin training"
+        />
 
         <h1 className="mt-10 text-4xl font-semibold tracking-tight sm:text-5xl">
           Speak better<span className="text-[var(--gold)]">.</span>

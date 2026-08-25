@@ -12,6 +12,7 @@ import { aggregates, loadState, saveState, weakestAxis, type SavedState } from "
 import { supabase } from "@/lib/supabase";
 import type { Session } from "@supabase/supabase-js";
 import posthog from "posthog-js";
+import { identify, setPerson, track } from "@/lib/analytics";
 
 type Phase = "ready" | "listening" | "grading" | "scored" | "chart";
 
@@ -101,7 +102,10 @@ export default function Train() {
 
   // ---- membership ----
   const adoptToken = useCallback((t: MemberToken) => {
-    if (!memberRef.current) posthog.capture("member_activated");
+    if (!memberRef.current) {
+      posthog.capture("member_activated");
+      setPerson({ member: true });
+    }
     saveMember(t);
     setMember(true);
   }, []);
@@ -128,7 +132,10 @@ export default function Train() {
   useEffect(() => {
     const s = loadState();
     setState(s);
-    setSupported(speechSupported());
+    const speechOk = speechSupported();
+    setSupported(speechOk);
+    if (!speechOk) track("speech_unsupported");
+    setPerson({ total_completed: s.completed });
     setCh(pickChallenge(s.history.map((h) => h.challengeId), weakestAxis(s.history), s.profile.interests));
 
     // Back from Stripe Checkout?
@@ -230,10 +237,12 @@ export default function Train() {
     void sb.auth.getSession().then(({ data }) => {
       sbSession.current = data.session;
       setAuthEmail(data.session?.user.email ?? null);
+      identify(data.session?.user.email);
     });
     const { data: sub } = sb.auth.onAuthStateChange((event, sess) => {
       sbSession.current = sess;
       setAuthEmail(sess?.user.email ?? null);
+      identify(sess?.user.email);
       if (event === "SIGNED_IN" && sess) void syncFromCloud(sess);
     });
     return () => sub.subscription.unsubscribe();
@@ -364,7 +373,16 @@ export default function Train() {
         overall: result.overall,
         graded_by: result.gradedBy,
         completed_total: next.completed,
+        challenge_id: ch.id,
+        kind: ch.kind,
+        ...Object.fromEntries(Object.entries(result.axes).map(([a, v]) => [`score_${a}`, v])),
+        words: result.words,
+        wpm: result.wpm,
+        filler_count: result.fillerCount,
+        long_pauses: pausesRef.current,
+        duration_s: Math.round(durationMs / 1000),
       });
+      setPerson({ total_completed: next.completed });
     };
 
     const wantAi = ch.axes.some((a) => a !== "filler") && wordsOf(transcript).length >= 6;
@@ -437,11 +455,20 @@ export default function Train() {
           pausesRef.current += 1;
         },
         onEnd: () => {},
-        onError: (m) => setError(m),
+        onError: (m) => {
+          setError(m);
+          track("mic_error", { message: m });
+        },
       });
       session.current = sess;
       startedAt.current = performance.now();
       setPhase("listening");
+      track("challenge_started", {
+        challenge_id: ch.id,
+        kind: ch.kind,
+        axes: ch.axes,
+        total_completed: stateRef.current?.completed ?? 0,
+      });
       timer.current = setInterval(() => {
         setSeconds(Math.floor((performance.now() - startedAt.current) / 1000));
       }, 250);
@@ -465,6 +492,11 @@ export default function Train() {
     if (!s || !ch) return;
     if (s.completed > 0 && s.completed % 10 === 0 && phase === "scored") {
       setPhase("chart");
+      const agg = aggregates(s.history);
+      track("scorecard_viewed", {
+        completed: s.completed,
+        ...Object.fromEntries(Object.entries(agg).map(([a, v]) => [`agg_${a}`, v])),
+      });
       return;
     }
     nextChallenge(s, ch.id);
@@ -473,6 +505,7 @@ export default function Train() {
   const skip = useCallback(() => {
     const s = stateRef.current;
     if (!s || !ch || phase === "listening" || phase === "grading") return;
+    track("challenge_skipped", { challenge_id: ch.id, kind: ch.kind });
     setSkipped((prev) => [...prev, ch]);
     nextChallenge(s, ch.id);
   }, [ch, phase, nextChallenge]);
@@ -1033,6 +1066,7 @@ export default function Train() {
                               ? state.profile.interests.filter((t) => t !== tag)
                               : [...state.profile.interests, tag];
                             persist({ ...state, profile: { ...state.profile, interests } });
+                            track("interests_changed", { interests });
                           }}
                           className={`rounded-full border px-3.5 py-1 text-xs transition-colors ${
                             on ? "border-[var(--green)] bg-[var(--green)] text-white" : "border-[var(--line)] text-[var(--sub)]"
@@ -1146,6 +1180,7 @@ export default function Train() {
                     <button
                       onClick={() => {
                         if (window.confirm("Erase all progress on this device?")) {
+                          track("progress_reset", { completed: state.completed });
                           persist({ history: [], profile: { interests: [], role: "" }, completed: 0 });
                           setSheet(null);
                         }
